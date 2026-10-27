@@ -1,0 +1,19 @@
+CARECONNECT — START HERE
+
+1. Unzip the project folder.
+2. Install Node.js 20+ if needed.
+3. Open a terminal in this folder.
+4. Run: npm install
+5. Run: npm run dev
+6. Open the local URL shown in the terminal.
+
+The app runs in demo mode without credentials. It includes fictional records and local browser storage.
+
+IMPORTANT HONESTY NOTE:
+- The frontend demo flows are implemented locally.
+- Supabase schema and an optional auth hook are included.
+- Appointment/client CRUD is not yet connected to Supabase tables.
+- No public deployment is created by the ZIP itself.
+- Do not enter real client information.
+
+See README.md and docs/architecture-and-review-notes.md for setup, architecture, schema, testing, and viva language.
