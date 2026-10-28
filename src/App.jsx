@@ -59,17 +59,65 @@ export default function App() {
   const filteredClients = useMemo(() => clients.filter(c => `${c.name} ${c.email} ${c.counsellor} ${c.id}`.toLowerCase().includes(search.toLowerCase())), [clients, search])
   const filteredAppointments = useMemo(() => appointments.filter(a => `${a.client} ${a.counsellor} ${a.id} ${a.type}`.toLowerCase().includes(search.toLowerCase())), [appointments, search])
 
-  async function login(e) {
-    e?.preventDefault()
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) { setToast(error.message); return }
-      setSupabaseUser(data.user); setShowLogin(false); setUserName(data.user.email?.split('@')[0] || 'CareConnect User')
-    } else {
-      setUserName(role === 'Admin' ? 'Alex Morgan' : role === 'Counsellor' ? 'Dr. Aditi Rao' : 'Maya Sharma')
-      setShowLogin(false); setToast('Demo workspace opened. Data is stored in this browser only.')
-    }
+  
+async function login(e) {
+  e?.preventDefault()
+
+  if (!isSupabaseConfigured) {
+    setUserName(
+      role === 'Admin'
+        ? 'Alex Morgan'
+        : role === 'Counsellor'
+          ? 'Dr. Aditi Rao'
+          : 'Maya Sharma'
+    )
+    setShowLogin(false)
+    setToast('Demo workspace opened. Data is stored in this browser only.')
+    return
   }
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email.trim(),
+    password
+  })
+
+  if (error) {
+    setToast(error.message)
+    return
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('full_name, role')
+    .eq('id', data.user.id)
+    .single()
+
+  if (profileError || !profile) {
+    setToast('Profile not found. Please contact the administrator.')
+    await supabase.auth.signOut()
+    return
+  }
+
+  const actualRole = {
+    admin: 'Admin',
+    counsellor: 'Counsellor',
+    client: 'Client'
+  }[profile.role?.toLowerCase()]
+
+  if (!actualRole) {
+    setToast('Your account has an invalid role.')
+    await supabase.auth.signOut()
+    return
+  }
+
+  setRole(actualRole)
+  setSupabaseUser(data.user)
+  setUserName(profile.full_name || data.user.email?.split('@')[0] || 'CareConnect')
+  setActive('Overview')
+  setShowLogin(false)
+  setToast(`Signed in as ${actualRole}.`)
+}
+
   async function signUp() {
     if (!isSupabaseConfigured) {
       setToast('Demo mode has no account database. Choose a preview role and sign in to explore.')
@@ -133,6 +181,16 @@ export default function App() {
   if (showLogin) return <Login email={email} setEmail={setEmail} password={password} setPassword={setPassword} showPassword={showPassword} setShowPassword={setShowPassword} role={role} setRole={setRole} login={login} signUp={signUp} resetPassword={resetPassword} isSupabaseConfigured={isSupabaseConfigured} toast={toast} />
 
   const displayName = role === 'Counsellor' ? 'Dr. Aditi Rao' : role === 'Client' ? 'Maya Sharma' : userName
+  const visibleNavItems =
+  role === 'Admin'
+    ? navItems
+    : role === 'Counsellor'
+      ? navItems.filter(item =>
+          ['Overview', 'Appointments', 'Client records'].includes(item.label)
+        )
+      : navItems.filter(item =>
+          ['Overview', 'Appointments'].includes(item.label)
+        )
   const pageTitle = active === 'Overview' ? 'Good morning' : active
 
   return <div className="app-shell">
@@ -150,7 +208,28 @@ export default function App() {
     <main className="main-area">
       <header className="topbar"><button className="icon-btn mobile-menu" onClick={() => setMobileNav(true)}><Menu size={20}/></button><div className="breadcrumbs"><span>Harbour Wellness</span><span className="crumb-sep">/</span><strong>{active}</strong></div><div className="topbar-right"><div className="environment-pill"><span className="environment-dot"/>{isSupabaseConfigured ? 'Cloud connected' : 'Demo environment'}</div><button className="icon-btn notification-btn" onClick={() => setModal({ type: 'notifications' })} aria-label="Notifications"><Bell size={18}/><i/></button><button className="top-user" onClick={() => setProfileOpen(!profileOpen)}><Avatar name={displayName} color="mint" small/><span>{displayName}</span><ChevronDown size={14}/></button></div></header>
       <div className="page-content">
-        {active === 'Overview' && <Overview appointments={appointments} clients={clients} setActive={setActive} setModal={setModal} updateStatus={updateStatus} role={role} />}
+        {active === 'Overview' && (
+  role === 'Admin' ? (
+    <AdminOverview
+      appointments={appointments}
+      clients={clients}
+      setActive={setActive}
+      setModal={setModal}
+      updateStatus={updateStatus}
+      role={role}
+    />
+  ) : role === 'Counsellor' ? (
+    <CounsellorOverview
+      appointments={appointments}
+      clients={clients}
+    />
+  ) : (
+    <ClientOverview
+      appointments={appointments}
+      userName={userName}
+    />
+  )
+)}
         {active === 'Appointments' && <AppointmentsPage appointments={filteredAppointments} setModal={setModal} updateStatus={updateStatus} search={search} setSearch={setSearch} />}
         {active === 'Client records' && <ClientsPage clients={filteredClients} setModal={setModal} search={search} setSearch={setSearch} exportCsv={exportCsv} role={role} />}
         {active === 'Reports & insights' && <ReportsPage appointments={appointments} clients={clients} exportCsv={exportCsv} />}
@@ -213,7 +292,7 @@ function Login({ email, setEmail, password, setPassword, showPassword, setShowPa
     </div><div className="login-right-footer"><span>© 2026 CareConnect</span><span><CircleHelp size={14}/> Help & support</span></div></div>
   </div>
 }
-function Overview({ appointments, clients, setActive, setModal, updateStatus, role }) {
+function AdminOverview({ appointments, clients, setActive, setModal, updateStatus, role }) {
   const today = appointments.filter(a => a.date === '2026-10-28').length
   const confirmed = appointments.filter(a => a.status === 'Confirmed' || a.status === 'Checked in').length
   return <>
@@ -225,7 +304,79 @@ function Overview({ appointments, clients, setActive, setModal, updateStatus, ro
     <section className="panel client-panel"><div className="panel-heading"><div><h2>Recently active clients</h2><p>Keep track of ongoing coordination</p></div><button className="link-btn" onClick={() => setActive('Client records')}>All client records <ArrowRight size={15}/></button></div><div className="table-scroll"><table className="data-table"><thead><tr><th>CLIENT</th><th>ASSIGNED COUNSELLOR</th><th>LAST SESSION</th><th>NEXT APPOINTMENT</th><th>STATUS</th></tr></thead><tbody>{clients.slice(0, 4).map((c, i) => <tr key={c.id}><td><div className="table-person"><Avatar name={c.name} color={avatarColors[i % avatarColors.length]} small/><div><b>{c.name}</b><span>{c.id}</span></div></div></td><td>{c.counsellor}</td><td>{c.lastVisit}</td><td>{c.nextVisit}</td><td><Status>{c.status}</Status></td></tr>)}</tbody></table></div></section>
   </>
 }
-function StatCard({ label, value, trend, icon: Icon, tone }) { return <div className="stat-card"><div className="stat-top"><span>{label}</span><div className={`stat-icon ${tone}`}><Icon size={18}/></div></div><div className="stat-value">{value}</div><div className="stat-trend"><span>{trend}</span></div></div> }
+function CounsellorOverview({ appointments, clients }) {
+  const myAppointments = appointments.filter(
+    (a) => a.counsellor === 'Dr. Aditi Rao'
+  );
+
+  return (
+    <>
+      <SectionTitle
+        eyebrow="COUNSELLOR WORKSPACE"
+        title="Counsellor dashboard"
+        subtitle="Manage your appointments and client follow-ups."
+      />
+
+      <div className="stats-grid">
+        <StatCard
+  label="My appointments"
+  value={myAppointments.length.toString()}
+  icon={CalendarDays}
+/>
+        <StatCard
+          label="My clients"
+          value={clients.filter(
+            (c) => c.counsellor === 'Dr. Aditi Rao'
+          ).length.toString()}
+        />
+        <StatCard
+          label="Pending appointments"
+          value={myAppointments.filter(
+            (a) => a.status === 'Pending'
+          ).length.toString()}
+        />
+      </div>
+    </>
+  );
+}
+
+function ClientOverview({ appointments, userName }) {
+  const myAppointments = appointments.filter(
+    (a) => a.client === userName
+  );
+
+  return (
+    <>
+      <SectionTitle
+        eyebrow="CLIENT WORKSPACE"
+        title="Your dashboard"
+        subtitle="View your counselling appointments and their status."
+      />
+
+      <div className="stats-grid">
+        <StatCard
+          label="My appointments"
+          value={myAppointments.length.toString()}
+        />
+        <StatCard
+          label="Upcoming appointments"
+          value={myAppointments.filter(
+            (a) =>
+              a.status === 'Pending' ||
+              a.status === 'Confirmed'
+          ).length.toString()}
+        />
+        <StatCard
+          label="Completed appointments"
+          value={myAppointments.filter(
+            (a) => a.status === 'Completed'
+          ).length.toString()}
+        />
+      </div>
+    </>
+  );
+}
+function StatCard({ label, value, trend, icon: Icon = CalendarDays, tone }) { return <div className="stat-card"><div className="stat-top"><span>{label}</span><div className={`stat-icon ${tone}`}>{Icon && <Icon size={20} />}</div></div><div className="stat-value">{value}</div><div className="stat-trend"><span>{trend}</span></div></div> }
 function EmptyState({ text }) { return <div className="empty-state"><CalendarDays size={25}/><span>{text}</span></div> }
 
 function AppointmentsPage({ appointments, setModal, updateStatus, search, setSearch }) {
