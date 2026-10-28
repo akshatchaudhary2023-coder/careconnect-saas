@@ -70,6 +70,43 @@ export default function App() {
       setShowLogin(false); setToast('Demo workspace opened. Data is stored in this browser only.')
     }
   }
+  async function signUp() {
+    if (!isSupabaseConfigured) {
+      setToast('Demo mode has no account database. Choose a preview role and sign in to explore.')
+      return
+    }
+    if (!email.trim() || password.length < 6) {
+      setToast('Enter a valid email and a password with at least 6 characters.')
+      return
+    }
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { emailRedirectTo: window.location.origin, data: { role: 'Client' } }
+    })
+    if (error) { setToast(error.message); return }
+    if (data.session && data.user) {
+      setSupabaseUser(data.user)
+      setUserName(data.user.email?.split('@')[0] || 'CareConnect User')
+      setRole('Client')
+      setShowLogin(false)
+      setToast('Account created. You are signed in as a Client.')
+    } else {
+      setToast('Registration submitted. Check your email to confirm the account, then sign in.')
+    }
+  }
+  async function resetPassword() {
+    if (!isSupabaseConfigured) {
+      setToast('Password reset requires a configured Supabase project. Demo mode does not use passwords.')
+      return
+    }
+    if (!email.trim()) { setToast('Enter your email address first.'); return }
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/`
+    })
+    if (error) setToast(error.message)
+    else setToast('If an account exists for this email, a password reset link has been sent.')
+  }
   async function logout() {
     if (isSupabaseConfigured) await supabase.auth.signOut()
     setShowLogin(true); setPassword(''); setToast('You have signed out.')
@@ -93,7 +130,7 @@ export default function App() {
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' })); const a = document.createElement('a'); a.href = url; a.download = 'careconnect-client-directory-demo.csv'; a.click(); URL.revokeObjectURL(url); setToast('Demo client directory exported as CSV.')
   }
 
-  if (showLogin) return <Login email={email} setEmail={setEmail} password={password} setPassword={setPassword} showPassword={showPassword} setShowPassword={setShowPassword} role={role} setRole={setRole} login={login} />
+  if (showLogin) return <Login email={email} setEmail={setEmail} password={password} setPassword={setPassword} showPassword={showPassword} setShowPassword={setShowPassword} role={role} setRole={setRole} login={login} signUp={signUp} resetPassword={resetPassword} isSupabaseConfigured={isSupabaseConfigured} toast={toast} />
 
   const displayName = role === 'Counsellor' ? 'Dr. Aditi Rao' : role === 'Client' ? 'Maya Sharma' : userName
   const pageTitle = active === 'Overview' ? 'Good morning' : active
@@ -127,10 +164,55 @@ export default function App() {
   </div>
 }
 
-function Login({ email, setEmail, password, setPassword, showPassword, setShowPassword, role, setRole, login }) {
-  return <div className="login-shell"><div className="login-left"><div className="login-brand"><div className="brand-mark"><HeartHandshake size={22}/></div><span>careconnect</span></div><div className="login-hero"><div className="hero-kicker"><span/> BETTER CARE, TOGETHER</div><h1>More room for<br/><em>human connection.</em></h1><p>A calmer, more coordinated workspace for counselling teams to care for the people who matter most.</p><div className="hero-illustration"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="illustration-card card-one"><div className="mini-avatar mint">AR</div><div><b>Dr. Aditi Rao</b><small>Counsellor</small></div><span className="online-dot"/></div><div className="illustration-card card-two"><div className="mini-calendar"><CalendarDays size={17}/></div><div><b>Session confirmed</b><small>Today · 10:30 AM</small></div><CheckCircle2 size={18} className="green-icon"/></div><div className="illustration-center"><HeartHandshake size={48} strokeWidth={1.25}/></div><div className="floating-leaf leaf-a">✳</div><div className="floating-leaf leaf-b">✦</div></div><div className="login-footnote"><ShieldCheck size={16}/> Designed around privacy, dignity and access.</div></div><div className="login-left-bottom">A student project prototype · Use fictional data only</div></div><div className="login-right"><div className="login-form-wrap"><div className="mobile-login-brand"><div className="brand-mark"><HeartHandshake size={20}/></div><span>careconnect</span></div><div className="form-overline">WELCOME TO CARECONNECT</div><h2>Sign in to your workspace</h2><p className="login-subtitle">Your care coordination space, all in one place.</p><form onSubmit={login}><label htmlFor="email">Work email</label><div className="input-wrap"><UserRound size={17}/><input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@counsellingcentre.com" required/></div><div className="label-row"><label htmlFor="password">Password</label><button type="button" className="text-link" onClick={() => alert('Password reset is available after configuring Supabase email authentication.')}>Forgot password?</button></div><div className="input-wrap"><LockKeyhole size={17}/><input id="password" type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter your password" required={false}/><button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff size={16}/> : <Eye size={16}/>}</button></div><div className="demo-role"><span>Preview role</span><div className="role-pills">{roles.map(r => <button type="button" key={r} className={role === r ? 'selected' : ''} onClick={() => setRole(r)}>{r}</button>)}</div></div><button className="primary-btn login-submit" type="submit">Continue to workspace <ArrowRight size={17}/></button></form><div className="demo-note"><Sparkles size={16}/><div><b>Exploring the prototype?</b><span>Choose a role above and continue. Demo data is fictional and stays in this browser.</span></div></div><div className="login-terms">By continuing, you agree to the workspace's <button onClick={() => alert('Prototype only: terms would be shown here.')}>terms of use</button> and <button onClick={() => alert('Prototype only: privacy notice would be shown here.')}>privacy notice</button>.</div></div><div className="login-right-footer"><span>© 2026 CareConnect</span><span><CircleHelp size={14}/> Help & support</span></div></div></div>
+function Login({ email, setEmail, password, setPassword, showPassword, setShowPassword, role, setRole, login, signUp, resetPassword, isSupabaseConfigured, toast }) {
+  const [mode, setMode] = useState('login')
+  const [busy, setBusy] = useState(false)
+  async function submit(e) {
+    e.preventDefault()
+    setBusy(true)
+    try {
+      if (mode === 'signup') await signUp()
+      else await login(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function handleReset() {
+    setBusy(true)
+    try { await resetPassword() } finally { setBusy(false) }
+  }
+  return <div className="login-shell">
+    <div className="login-left">
+      <div className="login-brand"><div className="brand-mark"><HeartHandshake size={22}/></div><span>careconnect</span></div>
+      <div className="login-hero"><div className="hero-kicker"><span/> BETTER CARE, TOGETHER</div><h1>More room for<br/><em>human connection.</em></h1><p>A calmer, more coordinated workspace for counselling teams to care for the people who matter most.</p>
+        <div className="hero-illustration"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="illustration-card card-one"><div className="mini-avatar mint">AR</div><div><b>Dr. Aditi Rao</b><small>Counsellor</small></div><span className="online-dot"/></div><div className="illustration-card card-two"><div className="mini-calendar"><CalendarDays size={17}/></div><div><b>Session confirmed</b><small>Today · 10:30 AM</small></div><CheckCircle2 size={18} className="green-icon"/></div><div className="illustration-center"><HeartHandshake size={48} strokeWidth={1.25}/></div><div className="floating-leaf leaf-a">✳</div><div className="floating-leaf leaf-b">✦</div></div>
+        <div className="login-footnote"><ShieldCheck size={16}/> Designed around privacy, dignity and access.</div>
+      </div><div className="login-left-bottom">A student project prototype · Use fictional data only</div>
+    </div>
+    <div className="login-right"><div className="login-form-wrap">
+      <div className="mobile-login-brand"><div className="brand-mark"><HeartHandshake size={20}/></div><span>careconnect</span></div>
+      <div className="form-overline">WELCOME TO CARECONNECT</div>
+      {toast && <div className="auth-feedback" role="status">{toast}</div>}
+      <h2>{mode === 'signup' ? 'Create your client account' : 'Sign in to your workspace'}</h2>
+      <p className="login-subtitle">{mode === 'signup' ? 'Register to get started with CareConnect.' : 'Your care coordination space, all in one place.'}</p>
+      <div className="role-pills auth-mode-pills">
+        <button type="button" className={mode === 'login' ? 'selected' : ''} onClick={() => setMode('login')}>Sign in</button>
+        <button type="button" className={mode === 'signup' ? 'selected' : ''} onClick={() => { setMode('signup'); setRole('Client') }}>Create account</button>
+      </div>
+      <form onSubmit={submit}>
+        <label htmlFor="email">Email address</label>
+        <div className="input-wrap"><UserRound size={17}/><input id="email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" required/></div>
+        <div className="label-row"><label htmlFor="password">Password</label>{mode === 'login' && <button type="button" className="text-link" onClick={handleReset} disabled={busy}>Forgot password?</button>}</div>
+        <div className="input-wrap"><LockKeyhole size={17}/><input id="password" type={showPassword ? 'text' : 'password'} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} minLength={mode === 'signup' ? 6 : undefined} value={password} onChange={e => setPassword(e.target.value)} placeholder={mode === 'signup' ? 'Create a password (6+ characters)' : 'Enter your password'} required/><button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff size={16}/> : <Eye size={16}/>}</button></div>
+        {mode === 'login' && !isSupabaseConfigured && <div className="demo-role"><span>Preview role</span><div className="role-pills">{roles.map(r => <button type="button" key={r} className={role === r ? 'selected' : ''} onClick={() => setRole(r)}>{r}</button>)}</div></div>}
+        {mode === 'signup' && <p className="login-subtitle">New registrations are assigned the Client role. Email confirmation may be required.</p>}
+        <button className="primary-btn login-submit" type="submit" disabled={busy}>{busy ? 'Please wait…' : mode === 'signup' ? 'Create account' : 'Continue to workspace'} <ArrowRight size={17}/></button>
+      </form>
+      {!isSupabaseConfigured && <div className="demo-note"><Sparkles size={16}/><div><b>Demo mode</b><span>Authentication is not connected. Choose a preview role and sign in to explore fictional sample data. Account creation and password reset require Supabase configuration.</span></div></div>}
+      <div className="login-terms">Use fictional data only. This student prototype is not for real counselling records.</div>
+    </div><div className="login-right-footer"><span>© 2026 CareConnect</span><span><CircleHelp size={14}/> Help & support</span></div></div>
+  </div>
 }
-
 function Overview({ appointments, clients, setActive, setModal, updateStatus, role }) {
   const today = appointments.filter(a => a.date === '2026-10-28').length
   const confirmed = appointments.filter(a => a.status === 'Confirmed' || a.status === 'Checked in').length
